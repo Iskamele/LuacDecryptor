@@ -84,7 +84,7 @@ public class LuacDecryptor {
                         System.out.println();
 
                         try {
-                            String outputFile = "SecretSkills_decrypted_" + String.format("%02x", key) + ".luac";
+                            String outputFile = "file_decrypted_" + String.format("%02x", key) + ".luac";
                             Files.write(Paths.get(outputFile), decrypted);
                             System.out.println("file saved: " + outputFile);
                         } catch (IOException e) {
