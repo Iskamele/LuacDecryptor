@@ -21,95 +21,97 @@ public class LuacDecryptor {
 
             System.out.println("file size: " + data.length + " bytes");
 
-            System.out.print("first 20 bytes: ");
-            for (int i = 0; i < Math.min(20, data.length); i++) {
-                System.out.printf("%02x ", data[i] & 0xFF);
-            }
-            System.out.println();
+            System.out.println("\n=== try multi-byte XOR ===");
 
-            System.out.print("last 10 bytes: ");
-            for (int i = Math.max(0, data.length - 10); i < data.length; i++) {
-                System.out.printf("%02x ", data[i] & 0xFF);
-            }
-            System.out.println();
+            String[] multiKeys = {
+                    "UTSD",
+                    "P3D",
+                    "HACK",
+                    "LUA",
+                    "CODE",
+                    "GAME"
+            };
 
-            if (data.length >= 5 && data[0] == (byte)0x9c && data[1] == (byte)0x55 &&
-                    data[2] == (byte)0x54 && data[3] == (byte)0x53 && data[4] == (byte)0x44) {
-                System.out.println("prefix found!");
+            for (String keyStr : multiKeys) {
+                byte[] key = keyStr.getBytes();
+                System.out.println("\ntry key: " + keyStr);
 
-                // пробуем XOR с самыми перспективными ключами
-                int[] xorKeys = {0x20, 0x42, 0x69, 0x33};
+                byte[] decrypted = new byte[data.length];
+                System.arraycopy(data, 0, decrypted, 0, 5); // префикс
 
-                for (int key : xorKeys) {
-                    System.out.println("\n=== XOR with key 0x" + String.format("%02x", key) + " ===");
+                // многобайтовое XOR
+                for (int i = 5; i < data.length; i++) {
+                    decrypted[i] = (byte) ((data[i] & 0xFF) ^ (key[(i - 5) % key.length] & 0xFF));
+                }
 
-                    byte[] decrypted = new byte[data.length];
-                    System.arraycopy(data, 0, decrypted, 0, 5);
+                if (decrypted.length > 8 &&
+                        (decrypted[5] & 0xFF) == 0x1B && (decrypted[6] & 0xFF) == 0x4C &&
+                        (decrypted[7] & 0xFF) == 0x75 && (decrypted[8] & 0xFF) == 0x61) {
+                    System.out.println("*** LUA SIGNATURE WITH KEY FOUND " + keyStr + "! ***");
 
-                    for (int i = 5; i < data.length; i++) {
-                        decrypted[i] = (byte)((data[i] & 0xFF) ^ key);
-                    }
-
-                    System.out.print("start after prefix: ");
-                    for (int i = 5; i < Math.min(25, decrypted.length); i++) {
+                    String outputFile = filename.replace(".luac", "_decrypted_" + keyStr + ".luac");
+                    Files.write(Paths.get(outputFile), decrypted);
+                    System.out.println("saved: " + outputFile);
+                } else {
+                    System.out.print("start: ");
+                    for (int i = 5; i < Math.min(15, decrypted.length); i++) {
                         System.out.printf("%02x ", decrypted[i] & 0xFF);
                     }
                     System.out.println();
-
-                    if (decrypted.length > 8 &&
-                            (decrypted[5] & 0xFF) == 0x1B && (decrypted[6] & 0xFF) == 0x4C &&
-                            (decrypted[7] & 0xFF) == 0x75 && (decrypted[8] & 0xFF) == 0x61) {
-                        System.out.println("*** LUA SIGNATURE FOUND! ***");
-
-                        System.out.print("Lua header (first 30 bytes): ");
-                        for (int i = 5; i < Math.min(35, decrypted.length); i++) {
-                            System.out.printf("%02x ", decrypted[i] & 0xFF);
-                        }
-                        System.out.println();
-
-                        String outputFile = filename.replace(".luac", "_decrypted.luac");
-                        Files.write(Paths.get(outputFile), decrypted);
-                        System.out.println("saved: " + outputFile);
-
-                        System.out.println("\nlet's try to decompile...");
-                        tryDecompile(outputFile);
-                    }
-
-                    if (decrypted.length > 50) {
-                        try {
-                            String text = new String(decrypted, 5, Math.min(100, decrypted.length - 5), "UTF-8");
-                            String cleanText = text.replaceAll("[\\x00-\\x1F\\x7F-\\xFF]", ".");
-                            System.out.println("as test: " + cleanText);
-                        } catch (Exception e) {
-                            System.out.println("text decompiling error");
-                        }
-                    }
                 }
-            } else {
-                System.out.println("unexpected prefix!");
+            }
+
+            // арифметическая херня
+            System.out.println("\n=== try arithmetic operations ===");
+
+            for (int shift = 1; shift <= 10; shift++) {
+                byte[] decrypted = new byte[data.length];
+                System.arraycopy(data, 0, decrypted, 0, 5);
+
+                for (int i = 5; i < data.length; i++) {
+                    decrypted[i] = (byte) ((data[i] & 0xFF) - shift);
+                }
+
+                if (decrypted.length > 8 &&
+                        (decrypted[5] & 0xFF) == 0x1B && (decrypted[6] & 0xFF) == 0x4C &&
+                        (decrypted[7] & 0xFF) == 0x75 && (decrypted[8] & 0xFF) == 0x61) {
+                    System.out.println("*** LUA SIGNATURE FOUND with subtraction " + shift + "! ***");
+
+                    String outputFile = filename.replace(".luac", "_decrypted_sub" + shift + ".luac");
+                    Files.write(Paths.get(outputFile), decrypted);
+                    System.out.println("saved: " + outputFile);
+                }
+            }
+
+            System.out.println("\n=== check how the Lua source code ===");
+
+            // XOR 0x20
+            byte[] textDecrypted = new byte[data.length - 5];
+            for (int i = 5; i < data.length; i++) {
+                textDecrypted[i - 5] = (byte) ((data[i] & 0xFF) ^ 0x20);
+            }
+
+            try {
+                String luaCode = new String(textDecrypted, "UTF-8");
+                System.out.println("as Lua code (first 200 characters):");
+                System.out.println(luaCode.substring(0, Math.min(200, luaCode.length())));
+
+                // key words
+                if (luaCode.contains("function") || luaCode.contains("local") ||
+                        luaCode.contains("end") || luaCode.contains("if")) {
+                    System.out.println("*** LUA KEYWORDS FOUND! ***");
+
+                    String outputFile = filename.replace(".luac", "_source.lua");
+                    Files.write(Paths.get(outputFile), luaCode.getBytes());
+                    System.out.println("source code preserved: " + outputFile);
+                }
+
+            } catch (Exception e) {
+                System.out.println("cannot decode as text");
             }
 
         } catch (IOException e) {
             System.out.println("error: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    private static void tryDecompile(String filename) {
-        try {
-            byte[] data = Files.readAllBytes(Paths.get(filename));
-            System.out.println("trying to parse as Lua file...");
-            System.out.println("size: " + data.length + " bytes");
-
-            if (data.length > 12) {
-                System.out.printf("signature: %02x %02x %02x %02x\n",
-                        data[5] & 0xFF, data[6] & 0xFF, data[7] & 0xFF, data[8] & 0xFF);
-                System.out.printf("version: %02x\n", data[9] & 0xFF);
-                System.out.printf("format: %02x\n", data[10] & 0xFF);
-            }
-
-        } catch (Exception e) {
-            System.out.println("analysis error: " + e.getMessage());
         }
     }
 }
